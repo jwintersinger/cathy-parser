@@ -1,0 +1,82 @@
+Remaining questions: 
+  Exact format of version identifier at beginning of file
+  Floating point format
+  4 unknown bytes in directory listing
+  5 unknown bytes in volume listing
+
+------------------
+Beginning of file
+------------------
+6 bytes -- header, seemingly remain constant across all volumes (27 06 a4 d0 03 00)
+  Seems to be version identifier -- for volume indexed with Cathy 2.24, value is 27 06 a4 d0 06 00
+    Cathy 2.15 ignores files with this header -- simply not loaded
+4 bytes -- volume date (little Endian, Unix timestamp)
+1 byte -- length of indexed path ("S:\")
+ASCII -- indexed path
+1 byte -- length of volume name ("WAREZ_190")
+ASCII -- volume name
+1 byte -- length of recorded name ("Warez 190")
+ASCII -- recorded name
+4 bytes -- serial number in hex ("E24A-7114" becomes '14', '71', '4a', 'e2')
+4 bytes -- free space
+  For CD-ROMs and DVDs, seems to be set to 00 00 80 BF -- flag value interpreted as "---N/A---"
+4 bytes -- how many directory records follow (I think)
+  First few bytes indicate how many directory records follow
+    Example: for 513 directories (including implicit root directory), value is 01 02 00 00 00
+  Examples:
+    Warez 191: 01 00 00 00 00
+    Warez 205: 03 00 00 00 00
+
+-----------
+Directories
+-----------
+All directories listed near beginning -- root, sub, sub-sub, etc.
+  Directories are also represented among listing of files
+
+First directory is root directory
+  12 bytes, since no name -- how many files, unknown, filesize of directory
+
+1 byte -- length of directory name
+ASCII -- directory name
+4 bytes -- how many files (does not include directories! just files) directory contains
+4 bytes -- unknown (00 00 00 0E)
+  Examples:
+    \ISOs\Games\Sims House Party: 00 00 00 0A
+    \ISOs\Games\Half-Life:        00 00 00 00
+    \ISOs\Games:                  00 00 00 05
+    \ISOs:                        00 00 00 05
+4 bytes -- filesize of directory (seemingly floating point, but I can't figure out format)
+  Example: A5 DC C4 41 = 667.581 MiB
+
+-----------------------------------------
+Between directories and directory entries
+-----------------------------------------
+4 bytes -- number of directories and files ("D+F") in volume
+  Increasing the last byte makes Cathy take an incredibly long time to launch, and to gradually eat more memory
+    Making it "00 00 00 01" made Cathy take on the order of ten minutes to launch, and eat over a gig of RAM
+      When it did finally launch, D+F was shown as 2^24, just as one would expect
+  Given performance observations, Cathy must allocate memory for all the directory entries that follow based on this number
+    Indeed, if it is set to 1 for volume with >1 directory entries, only one directory entry shows up when browsing directory hierarchy -- none of the others are loaded
+    Setting it to more than number of actual directory entries does not seem to have deleterious effect
+
+-----------------
+Directory entries
+-----------------
+4 bytes -- entry date
+4 bytes -- filesize as unsigned int
+  Example of conversion in Ruby: 0x6c*256**0 + 0x05*256**1 + 0xfc*256**2 + 0x3f*256**3
+  Directories have filesizes of FF FF FF FF
+    Instead, size of directory taken from record in "directories" section
+2 bytes -- what directory entry belongs to
+  00 = root directory
+  Directories don't seem to be explicitly numbered -- instead, this value refers to position of directory in list of directories
+1 byte -- length of entryname as unsigned int
+ASCII -- entryname
+
+----
+Misc
+----
+Best approach to parsing parent/child relationships between directories & files seems to be to parse listing of directories at beginning, noting only names and assigning IDs based on position (0, 1, 2 ...)
+  Then parse each file/directory record later in the file, adding to the appropriate parent, deleting it if there's a directory by the same name in our tree of directories ... what if there's a file and directory named same thing? See, that wouldn't work ... might have to perform test by creating index with file and directory named same thing in tree
+Difference between Cathy v2.15.2 and v2.24 file formats is not trivial
+  v2.15.2 indicates string length by prefixing string with byte representing length, while v2.24 omits this, instead storing null terminator byte at end of string
